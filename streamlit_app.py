@@ -11,6 +11,7 @@ url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-chat"
 agent_id = "1d1de20a-20b2-4973-b36b-98b579af3bae"
 
 message = st.text_area("Message:", "Hello, how can you help me?", height=100)
+system_prompt = st.text_area("System Prompt:", "You are a helpful assistant.", height=50)
 use_rag = st.checkbox("Use RAG (Retrieval Augmented Generation)", value=True)
 
 if st.button("Send"):
@@ -22,6 +23,7 @@ if st.button("Send"):
     data = {
         "message": message,
         "agentId": agent_id,
+        "systemPrompt": system_prompt,
         "conversationId": conversation_id,
         "useRAG": use_rag
     }
