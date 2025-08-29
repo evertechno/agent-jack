@@ -7,7 +7,7 @@ st.title("Supabase Agent Handler Chat")
 # Load API token from Streamlit secrets
 api_token = st.secrets["API_TOKEN"]
 
-url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
+url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-chat"
 agent_id = "1d1de20a-20b2-4973-b36b-98b579af3bae"
 
 message = st.text_area("Message:", "Hello, how can you help me?", height=100)
