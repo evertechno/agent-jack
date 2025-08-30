@@ -1,36 +1,47 @@
 import streamlit as st
 import requests
-import uuid
 
 st.title("Supabase Agent Handler Chat")
 
-# Load API token from Streamlit secrets
+# Load API token and user UUID from Streamlit secrets
 api_token = st.secrets["API_TOKEN"]
+user_id = st.secrets["USER_ID"]  # Add this to your .streamlit/secrets.toml
 
 url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
 agent_id = "1d1de20a-20b2-4973-b36b-98b579af3bae"
+conversation_id = "e518a684-450e-4ce9-9ded-d1a66db4ce32"  # Provided by user
 
-message = st.text_area("Message:", "Hello, how can you help me?", height=100)
-system_prompt = st.text_area("System Prompt:", "You are a helpful assistant.", height=50)
+# Initialize session state for history
+if "conversation_history" not in st.session_state:
+    st.session_state["conversation_history"] = []
+
+message = st.text_area("Message:", "", height=100)
 use_rag = st.checkbox("Use RAG (Retrieval Augmented Generation)", value=True)
 
 if st.button("Send"):
-    conversation_id = str(uuid.uuid4())
+    data = {
+        "message": message,
+        "agentId": agent_id,
+        "conversationId": conversation_id,
+        "userId": user_id,
+        "useRAG": use_rag
+    }
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_token}"
     }
-    data = {
-        "message": message,
-        "agentId": agent_id,
-        "systemPrompt": system_prompt,
-        "conversationId": e518a684-450e-4ce9-9ded-d1a66db4ce32,
-        "useRAG": use_rag
-    }
     response = requests.post(url, headers=headers, json=data)
     if response.status_code == 200:
         result = response.json()
-        st.success(result.get("message", "No message returned."))
-        st.write("Conversation ID:", result.get("conversationId", conversation_id))
+        st.session_state["conversation_history"].append(("You", message))
+        st.session_state["conversation_history"].append(("AI", result.get("message", "")))
+        if result.get("contextUsed"):
+            st.info(f'Context Used: {result["contextUsed"]}')
     else:
         st.error(f"Error: {response.status_code}\n{response.text}")
+
+st.subheader("Conversation History")
+for sender, msg in st.session_state["conversation_history"]:
+    st.write(f"**{sender}:** {msg}")
+
+st.write(f"**Conversation ID:** {conversation_id}")
