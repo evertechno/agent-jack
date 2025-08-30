@@ -24,7 +24,7 @@ if st.button("Send"):
         "message": message,
         "agentId": agent_id,
         "systemPrompt": system_prompt,
-        "conversationId": conversation_id,
+        "conversationId": e518a684-450e-4ce9-9ded-d1a66db4ce32,
         "useRAG": use_rag
     }
     response = requests.post(url, headers=headers, json=data)
