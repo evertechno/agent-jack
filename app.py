@@ -2,12 +2,11 @@ import streamlit as st
 import requests
 import uuid
 
-st.set_page_config(page_title="Supabase Agent Chat", page_icon="🤖")
+st.set_page_config(page_title="Etlas AI Studio", page_icon="🤖")
 st.title("🤖 Supabase Agent Chatbot")
 
-# Load API token and user UUID from Streamlit secrets
-api_token = st.secrets["API_TOKEN"]
-user_id = st.secrets["USER_ID"]  # Add this to your .streamlit/secrets.toml
+api_token = os.environ["API_TOKEN"]
+user_id = os.environ["USER_ID"]
 
 url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
 agent_id = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
