@@ -7,12 +7,12 @@ import os  # ✅ Import added
 st.set_page_config(page_title="Etlas AI Studio", page_icon="🤖")
 st.title("🤖 Supabase Agent Chatbot")
 
-# ✅ Get API token & user_id from Streamlit secrets (recommended) or env fallback
-api_token = st.secrets.get("API_TOKEN", os.getenv("API_TOKEN"))
-user_id = st.secrets.get("USER_ID", os.getenv("USER_ID"))
+# ✅ Get API token & user_id only from Render environment variables
+api_token = os.getenv("API_TOKEN")
+user_id = os.getenv("USER_ID")
 
 if not api_token or not user_id:
-    st.error("❌ Missing API_TOKEN or USER_ID in secrets/environment.")
+    st.error("❌ Missing API_TOKEN or USER_ID in environment variables.")
     st.stop()
 
 # Supabase edge function endpoint
