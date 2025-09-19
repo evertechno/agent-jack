@@ -10,7 +10,7 @@ api_token = st.secrets["API_TOKEN"]
 user_id = st.secrets["USER_ID"]  # Add this to your .streamlit/secrets.toml
 
 url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
-agent_id = "248c152b-13b4-4675-9ee4-f76d9a677e5f"
+agent_id = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
 
 # Initialize conversation_id dynamically (hidden from UI)
 if "conversation_id" not in st.session_state:
