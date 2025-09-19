@@ -1,15 +1,15 @@
 import streamlit as st
 import requests
 import uuid
-import os  # ✅ Import added
+import os
 
 # Page config
 st.set_page_config(page_title="Etlas AI Studio", page_icon="🤖")
 st.title("🤖 Supabase Agent Chatbot")
 
-# ✅ Get API token & user_id only from Render environment variables
-api_token = os.getenv("API_TOKEN")
-user_id = os.getenv("USER_ID")
+# ✅ Strip whitespace from env vars
+api_token = os.getenv("API_TOKEN", "").strip()
+user_id = os.getenv("USER_ID", "").strip()
 
 if not api_token or not user_id:
     st.error("❌ Missing API_TOKEN or USER_ID in environment variables.")
