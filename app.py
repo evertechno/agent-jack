@@ -7,9 +7,20 @@ import os
 st.set_page_config(page_title="Etlas AI Studio", page_icon="🤖")
 st.title("🤖 Supabase Agent Chatbot")
 
-# ✅ Strip whitespace from env vars
-api_token = os.getenv("API_TOKEN", "").strip()
-user_id = os.getenv("USER_ID", "").strip()
+# ✅ Clean env vars (remove quotes, extra spaces, accidental "KEY=" prefixes)
+def clean_env(value: str) -> str:
+    if not value:
+        return ""
+    value = value.strip()
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        value = value[1:-1]  # remove wrapping quotes
+    if "=" in value and value.split("=")[0].isupper():
+        # Handle accidental "API_TOKEN=xxx" pasted into Render
+        value = value.split("=", 1)[1].strip()
+    return value
+
+api_token = clean_env(os.getenv("API_TOKEN", ""))
+user_id = clean_env(os.getenv("USER_ID", ""))
 
 if not api_token or not user_id:
     st.error("❌ Missing API_TOKEN or USER_ID in environment variables.")
@@ -49,7 +60,7 @@ if message:
         "agentId": agent_id,
         "conversationId": conversation_id,
         "userId": user_id,
-        "useRAG": True,  # Always using RAG here
+        "useRAG": True,
     }
     headers = {
         "Content-Type": "application/json",
@@ -64,7 +75,6 @@ if message:
         ai_message = result.get("message", "")
         st.session_state["conversation_history"].append(("AI", ai_message))
 
-        # Show AI response
         with st.chat_message("assistant"):
             st.markdown(ai_message)
 
