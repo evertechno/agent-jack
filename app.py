@@ -1,13 +1,21 @@
 import streamlit as st
 import requests
 import uuid
+import os  # ✅ Import added
 
+# Page config
 st.set_page_config(page_title="Etlas AI Studio", page_icon="🤖")
 st.title("🤖 Supabase Agent Chatbot")
 
-api_token = os.environ["API_TOKEN"]
-user_id = os.environ["USER_ID"]
+# ✅ Get API token & user_id from Streamlit secrets (recommended) or env fallback
+api_token = st.secrets.get("API_TOKEN", os.getenv("API_TOKEN"))
+user_id = st.secrets.get("USER_ID", os.getenv("USER_ID"))
 
+if not api_token or not user_id:
+    st.error("❌ Missing API_TOKEN or USER_ID in secrets/environment.")
+    st.stop()
+
+# Supabase edge function endpoint
 url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
 agent_id = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
 
@@ -41,16 +49,18 @@ if message:
         "agentId": agent_id,
         "conversationId": conversation_id,
         "userId": user_id,
-        "useRAG": True,  # Always using RAG here; you can add toggle if needed
+        "useRAG": True,  # Always using RAG here
     }
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_token}"
     }
-    response = requests.post(url, headers=headers, json=data)
 
-    if response.status_code == 200:
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
         result = response.json()
+
         ai_message = result.get("message", "")
         st.session_state["conversation_history"].append(("AI", ai_message))
 
@@ -59,9 +69,9 @@ if message:
             st.markdown(ai_message)
 
         if result.get("contextUsed"):
-            st.info(f'Context Used: {result["contextUsed"]}')
-    else:
-        error_msg = f"Error: {response.status_code}\n{response.text}"
+            st.info(f'📌 Context Used: {result["contextUsed"]}')
+    except requests.exceptions.RequestException as e:
+        error_msg = f"❌ Request failed: {e}"
         st.session_state["conversation_history"].append(("AI", error_msg))
         with st.chat_message("assistant"):
             st.error(error_msg)
