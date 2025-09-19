@@ -11,7 +11,7 @@ user_id = st.secrets["USER_ID"]  # Add this to your .streamlit/secrets.toml
 url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
 agent_id = "1d1de20a-20b2-4973-b36b-98b579af3bae"
 
-# Initialize conversation_id dynamically
+# Initialize conversation_id dynamically (hidden from user)
 if "conversation_id" not in st.session_state:
     st.session_state["conversation_id"] = str(uuid.uuid4())
 
@@ -55,4 +55,4 @@ st.subheader("Conversation History")
 for sender, msg in st.session_state["conversation_history"]:
     st.write(f"**{sender}:** {msg}")
 
-st.write(f"**Conversation ID:** {conversation_id}")
+# (conversation_id is kept internal, not displayed)
