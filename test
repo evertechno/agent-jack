@@ -1,0 +1,20 @@
+import requests
+  
+url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
+  
+headers = {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer YOUR_SUPABASE_ANON_KEY"
+}
+  
+data = {
+      "message": "show me all users from the marketing department",
+      "agentId": "your-agent-id",
+      "userId": "your-user-id",
+      "connectionId": "your-db-connection-id",
+      "databaseQuery": True
+}
+  
+response = requests.post(url, json=data, headers=headers)
+result = response.json()
+print(result)
