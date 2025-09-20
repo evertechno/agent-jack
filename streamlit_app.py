@@ -7,7 +7,8 @@ st.title("🤖 Supabase Agent Chatbot")
 
 # Load API token and user UUID from Streamlit secrets
 api_token = st.secrets["API_TOKEN"]
-user_id = st.secrets["USER_ID"]  # Add this to your .streamlit/secrets.toml
+user_id = st.secrets["USER_ID"]      # Add this to your .streamlit/secrets.toml
+connection_id = st.secrets["CONNECTION_ID"]  # Add this too in secrets.toml
 
 url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
 agent_id = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
@@ -36,18 +37,22 @@ if message:
     with st.chat_message("user"):
         st.markdown(message)
 
-    # Send to backend
+    # Send to backend with new params
     data = {
         "message": message,
         "agentId": agent_id,
         "conversationId": conversation_id,
         "userId": user_id,
-        "useRAG": True,  # Always using RAG here; you can add toggle if needed
+        "connectionId": connection_id,  # ✅ Added
+        "useRAG": True,                 # Can toggle if needed
+        "databaseQuery": True           # ✅ Added
     }
+
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_token}"
     }
+
     response = requests.post(url, headers=headers, json=data)
 
     if response.status_code == 200:
