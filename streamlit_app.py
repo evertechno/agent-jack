@@ -39,10 +39,9 @@ if not st.session_state["lead_captured"]:
         if not name or not email or not phone:
             st.warning("⚠️ Please fill in all details before continuing.")
         else:
-            # Save to Supabase leads table (no userId)
+            # Save to Supabase leads table (no manual id, let Postgres handle bigint)
             try:
                 lead_data = {
-                    "id": str(uuid.uuid4()),   # unique row id
                     "name": name,
                     "email": email,
                     "phone": phone
