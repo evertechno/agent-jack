@@ -7,25 +7,20 @@ st.set_page_config(page_title="Supabase Agent Chat", page_icon="🤖")
 st.title("🤖 Supabase Agent Chatbot")
 
 # --- Load secrets ---
-api_token = st.secrets["API_TOKEN"]
-user_id = st.secrets.get("USER_ID", None)  # required
+api_token = st.secrets["API_TOKEN"]  # For agent-handler endpoint
+user_id = st.secrets.get("USER_ID", None)  # ✅ Only used in chatbot
 connection_id = st.secrets.get("CONNECTION_ID", None)
 
 supabase_url = st.secrets.get("SUPABASE_URL", None)
-supabase_key = st.secrets.get("SUPABASE_KEY", None)
+supabase_key = st.secrets.get("SUPABASE_KEY", None)  # ✅ Use anon key for policy
 
-# Ensure USER_ID exists
-if not user_id:
-    st.error("🚨 USER_ID missing in Streamlit secrets. Cannot continue.")
+# Ensure Supabase creds exist
+if not supabase_url or not supabase_key:
+    st.error("🚨 Missing Supabase credentials in secrets.toml")
     st.stop()
 
-# --- Setup Supabase client ---
-supabase: Client = None
-if supabase_url and supabase_key:
-    supabase = create_client(supabase_url, supabase_key)
-else:
-    st.error("🚨 Supabase credentials missing in secrets.toml")
-    st.stop()
+# Setup Supabase client
+supabase: Client = create_client(supabase_url, supabase_key)
 
 # --- Lead capture workflow ---
 if "lead_captured" not in st.session_state:
@@ -44,16 +39,15 @@ if not st.session_state["lead_captured"]:
         if not name or not email or not phone:
             st.warning("⚠️ Please fill in all details before continuing.")
         else:
-            # Save to Supabase leads table
+            # Save to Supabase leads table (no userId)
             try:
-                leads = {
+                lead_data = {
                     "id": str(uuid.uuid4()),   # unique row id
-                    "userId": user_id,         # from secrets
                     "name": name,
                     "email": email,
                     "phone": phone
                 }
-                response = supabase.table("leads").insert(lead_data).execute()
+                response = supabase.table("Leads").insert(lead_data).execute()
 
                 if response.data:
                     st.success("✅ Thanks! You can now chat with the bot.")
@@ -70,6 +64,11 @@ if not st.session_state["lead_captured"]:
 if st.session_state["lead_captured"]:
     url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
     agent_id = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
+
+    # Ensure USER_ID is available (needed for agent-handler)
+    if not user_id:
+        st.error("🚨 USER_ID missing in secrets.toml (required for chatbot).")
+        st.stop()
 
     # Initialize conversation_id dynamically
     if "conversation_id" not in st.session_state:
@@ -99,7 +98,7 @@ if st.session_state["lead_captured"]:
             "message": message,
             "agentId": agent_id,
             "conversationId": conversation_id,
-            "userId": user_id,
+            "userId": user_id,           # ✅ only used here
             "connectionId": connection_id,
             "useRAG": True,
             "databaseQuery": True
