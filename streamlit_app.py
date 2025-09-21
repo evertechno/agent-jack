@@ -7,19 +7,19 @@ st.set_page_config(page_title="Supabase Agent Chat", page_icon="🤖")
 st.title("🤖 Supabase Agent Chatbot")
 
 # --- Load secrets ---
-api_token = st.secrets["API_TOKEN"]  # For agent-handler endpoint
-user_id = st.secrets.get("USER_ID", None)  # ✅ Only used in chatbot
+# The API_TOKEN is the unique key for your enterprise customer from the 'api_keys' table
+api_token = st.secrets["API_TOKEN"]
 connection_id = st.secrets.get("CONNECTION_ID", None)
 
 supabase_url = st.secrets.get("SUPABASE_URL", None)
-supabase_key = st.secrets.get("SUPABASE_KEY", None)  # ✅ Use anon key for policy
+supabase_key = st.secrets.get("SUPABASE_KEY", None)  # Use anon key for writing to the Leads table
 
-# Ensure Supabase creds exist
+# Ensure Supabase creds exist for the lead capture form
 if not supabase_url or not supabase_key:
     st.error("🚨 Missing Supabase credentials in secrets.toml")
     st.stop()
 
-# Setup Supabase client
+# Setup Supabase client for public tables like 'Leads'
 supabase: Client = create_client(supabase_url, supabase_key)
 
 # --- Lead capture workflow ---
@@ -39,7 +39,7 @@ if not st.session_state["lead_captured"]:
         if not name or not email or not phone:
             st.warning("⚠️ Please fill in all details before continuing.")
         else:
-            # Save to Supabase leads table (no manual id, let Postgres handle bigint)
+            # Save to Supabase leads table
             try:
                 lead_data = {
                     "name": name,
@@ -51,6 +51,7 @@ if not st.session_state["lead_captured"]:
                 if response.data:
                     st.success("✅ Thanks! You can now chat with the bot.")
                     st.session_state["lead_captured"] = True
+                    st.experimental_rerun() # Rerun to show the chatbot UI immediately
                 else:
                     st.error("❌ Failed to save lead. Try again.")
                     st.stop()
@@ -63,11 +64,6 @@ if not st.session_state["lead_captured"]:
 if st.session_state["lead_captured"]:
     url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/agent-handler"
     agent_id = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
-
-    # Ensure USER_ID is available (needed for agent-handler)
-    if not user_id:
-        st.error("🚨 USER_ID missing in secrets.toml (required for chatbot).")
-        st.stop()
 
     # Initialize conversation_id dynamically
     if "conversation_id" not in st.session_state:
@@ -92,12 +88,12 @@ if st.session_state["lead_captured"]:
         with st.chat_message("user"):
             st.markdown(message)
 
-        # Send to backend
+        # --- Send to backend ---
+        # NOTE: We no longer send 'userId'. The user is identified by the API Token.
         data = {
             "message": message,
             "agentId": agent_id,
             "conversationId": conversation_id,
-            "userId": user_id,           # ✅ only used here
             "connectionId": connection_id,
             "useRAG": True,
             "databaseQuery": True
@@ -105,14 +101,14 @@ if st.session_state["lead_captured"]:
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_token}"
+            "Authorization": f"Bearer {api_token}" # Securely sends the customer's API key
         }
 
         response = requests.post(url, headers=headers, json=data)
 
         if response.status_code == 200:
             result = response.json()
-            ai_message = result.get("message", "")
+            ai_message = result.get("message", "Sorry, I encountered an issue.")
             st.session_state["conversation_history"].append(("AI", ai_message))
 
             with st.chat_message("assistant"):
