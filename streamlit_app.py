@@ -46,7 +46,7 @@ if not st.session_state["lead_captured"]:
         else:
             # Save to Supabase leads table
             try:
-                lead_data = {
+                leads = {
                     "id": str(uuid.uuid4()),   # unique row id
                     "userId": user_id,         # from secrets
                     "name": name,
