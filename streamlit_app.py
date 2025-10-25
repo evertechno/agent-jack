@@ -1,81 +1,128 @@
 import streamlit as st
 import requests
 import uuid
-from supabase import create_client, Client
+import os
 
-st.set_page_config(page_title="Supabase Agent Chat", page_icon="🤖")
+# 🚀 Page config
+st.set_page_config(page_title="Etlas AI Studio", page_icon="🤖", layout="wide")
 st.title("🤖 Supabase Agent Chatbot")
 
-# --- Load secrets ---
-api_token = st.secrets["API_TOKEN"]
-connection_id = st.secrets.get("CONNECTION_ID", None)
+# ✅ Clean env vars
+def clean_env(value: str) -> str:
+    if not value:
+        return ""
+    value = value.strip()
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        value = value[1:-1]
+    if "=" in value and value.split("=")[0].isupper():
+        value = value.split("=", 1)[1].strip()
+    return value
 
-# Supabase credentials (if needed elsewhere)
-supabase_url = st.secrets.get("SUPABASE_URL", None)
-supabase_key = st.secrets.get("SUPABASE_KEY", None)
+api_token = clean_env(os.getenv("API_TOKEN", ""))
+user_id = clean_env(os.getenv("USER_ID", ""))
 
-if not supabase_url or not supabase_key:
-    st.error("🚨 Missing Supabase credentials in secrets.toml")
+# ✅ Load HUSH token from Streamlit secrets
+HUSH_AUTH_TOKEN = st.secrets.get("HUSH_AUTH_TOKEN", "")
+
+if not api_token or not user_id:
+    st.error("❌ Missing API_TOKEN or USER_ID in environment variables.")
     st.stop()
 
-supabase: Client = create_client(supabase_url, supabase_key)
+if not HUSH_AUTH_TOKEN:
+    st.error("❌ Missing HUSH_AUTH_TOKEN in Streamlit secrets.")
+    st.stop()
 
-# --- Chatbot UI ---
-url = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/v2"
-agent_id = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
+# URLs
+SUPABASE_AGENT_URL = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/v2"
+HUSH_URL = "https://kdikcecnfoqhzyoyizly.supabase.co/functions/v1/hush"
 
-# Initialize conversation_id dynamically
+AGENT_ID = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
+
+# Initialize session state
 if "conversation_id" not in st.session_state:
     st.session_state["conversation_id"] = str(uuid.uuid4())
-conversation_id = st.session_state["conversation_id"]
 
-# Initialize chat history
 if "conversation_history" not in st.session_state:
     st.session_state["conversation_history"] = []
 
-# Display existing conversation
+conversation_id = st.session_state["conversation_id"]
+
+# 🧠 Function to call Hush API
+def call_hush_api(message: str, history: list):
+    headers = {
+        "Authorization": f"Bearer {HUSH_AUTH_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {"message": message, "conversationHistory": history}
+    try:
+        res = requests.post(HUSH_URL, headers=headers, json=data)
+        res.raise_for_status()
+        return res.text
+    except requests.exceptions.RequestException as e:
+        return f"❌ Hush API Error: {e}"
+
+# 🧠 Function to call main Supabase agent API
+def call_agent_api(message: str):
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_token}"
+    }
+    data = {
+        "message": message,
+        "agentId": AGENT_ID,
+        "conversationId": conversation_id,
+        "userId": user_id,
+        "useRAG": True,
+    }
+    try:
+        response = requests.post(SUPABASE_AGENT_URL, headers=headers, json=data)
+        response.raise_for_status()
+        result = response.json()
+        return result.get("message", ""), result.get("contextUsed", "")
+    except requests.exceptions.RequestException as e:
+        return f"❌ Request failed: {e}", None
+
+# 💬 Display existing conversation
 for sender, msg in st.session_state["conversation_history"]:
     with st.chat_message("user" if sender == "You" else "assistant"):
         st.markdown(msg)
 
-# Chat input
+# 🧠 Chat input box
 message = st.chat_input("Type your message...")
 
 if message:
-    # Show user message
     st.session_state["conversation_history"].append(("You", message))
     with st.chat_message("user"):
         st.markdown(message)
 
-    # --- Send to backend ---
-    data = {
-        "message": message,
-        "agentId": agent_id,
-        "conversationId": conversation_id,
-        "connectionId": connection_id,
-        "useRAG": True,
-        "databaseQuery": True
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_token}"  # Securely sends the customer's API key
-    }
-
-    response = requests.post(url, headers=headers, json=data)
-
-    if response.status_code == 200:
-        result = response.json()
-        ai_message = result.get("message", "Sorry, I encountered an issue.")
-        st.session_state["conversation_history"].append(("AI", ai_message))
-
-        with st.chat_message("assistant"):
-            st.markdown(ai_message)
-
-        if result.get("contextUsed"):
-            st.info(f'Context Used: {result["contextUsed"]}')
+    # 🔍 Check if @hush command is used
+    if "@hush" in message.lower():
+        # Extract message after @hush
+        hush_text = message.split("@hush", 1)[1].strip()
+        with st.spinner("🤫 Sending to Hush..."):
+            hush_response = call_hush_api(hush_text, st.session_state["conversation_history"])
+        ai_message = hush_response
     else:
-        error_msg = f"Error: {response.status_code}\n{response.text}"
-        st.session_state["conversation_history"].append(("AI", error_msg))
-        with st.chat_message("assistant"):
-            st.error(error_msg)
+        # Regular agent flow
+        with st.spinner("⚡ Thinking..."):
+            ai_message, context_used = call_agent_api(message)
+
+        if context_used:
+            st.info(f'📌 Context Used: {context_used}')
+
+    # Display AI response
+    st.session_state["conversation_history"].append(("AI", ai_message))
+    with st.chat_message("assistant"):
+        st.markdown(ai_message)
+
+# 💅 UI polish
+st.markdown(
+    """
+    <style>
+    .stChatInput textarea {border-radius: 12px; border: 1px solid #ccc;}
+    .stChatMessage {border-radius: 14px; padding: 8px 14px;}
+    .stAlert {margin-top: 12px;}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
