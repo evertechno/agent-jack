@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import uuid
 import os
+import json
 
 # 🚀 Page config
 st.set_page_config(page_title="Etlas AI Studio", page_icon="🤖")
@@ -41,9 +42,19 @@ if "conversation_id" not in st.session_state:
     st.session_state["conversation_id"] = str(uuid.uuid4())
 
 if "conversation_history" not in st.session_state:
-    st.session_state["conversation_history"] = []
+    st.session_state["conversation_history"] = []  # store tuples ("You", msg) and ("AI", msg)
 
 conversation_id = st.session_state["conversation_id"]
+
+# 🧩 Function to format history for Hush API
+def format_history_for_hush(history: list):
+    formatted = []
+    for sender, content in history:
+        if sender == "You":
+            formatted.append({"role": "user", "content": content})
+        else:
+            formatted.append({"role": "assistant", "content": content})
+    return formatted
 
 # 🧩 Function to call Hush API
 def call_hush_api(message: str, history: list):
@@ -51,9 +62,15 @@ def call_hush_api(message: str, history: list):
         "Authorization": f"Bearer {HUSH_AUTH_TOKEN}",
         "Content-Type": "application/json"
     }
-    data = {"message": message, "conversationHistory": history}
+
+    formatted_history = format_history_for_hush(history)
+    payload = {
+        "message": message,
+        "conversationHistory": formatted_history
+    }
+
     try:
-        res = requests.post(HUSH_URL, headers=headers, json=data, timeout=60)
+        res = requests.post(HUSH_URL, headers=headers, json=payload, timeout=60)
         res.raise_for_status()
         return res.text
     except requests.exceptions.RequestException as e:
