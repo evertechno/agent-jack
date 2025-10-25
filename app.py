@@ -7,7 +7,7 @@ import os
 st.set_page_config(page_title="Etlas AI Studio", page_icon="🤖", layout="wide")
 st.title("🤖 Supabase Agent Chatbot")
 
-# ✅ Clean env vars
+# ✅ Clean env vars helper
 def clean_env(value: str) -> str:
     if not value:
         return ""
@@ -18,27 +18,25 @@ def clean_env(value: str) -> str:
         value = value.split("=", 1)[1].strip()
     return value
 
+# ✅ Load environment variables
 api_token = clean_env(os.getenv("API_TOKEN", ""))
 user_id = clean_env(os.getenv("USER_ID", ""))
-
-# ✅ Load HUSH token from Streamlit secrets
-HUSH_AUTH_TOKEN = st.secrets.get("HUSH_AUTH_TOKEN", "")
+HUSH_AUTH_TOKEN = clean_env(os.getenv("HUSH_AUTH_TOKEN", ""))
 
 if not api_token or not user_id:
     st.error("❌ Missing API_TOKEN or USER_ID in environment variables.")
     st.stop()
 
 if not HUSH_AUTH_TOKEN:
-    st.error("❌ Missing HUSH_AUTH_TOKEN in Streamlit secrets.")
+    st.error("❌ Missing HUSH_AUTH_TOKEN in environment variables.")
     st.stop()
 
-# URLs
+# 🔗 API URLs
 SUPABASE_AGENT_URL = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1/v2"
 HUSH_URL = "https://kdikcecnfoqhzyoyizly.supabase.co/functions/v1/hush"
-
 AGENT_ID = "93dee35f-0ebe-42f6-beef-9a1abd1a6f12"
 
-# Initialize session state
+# 🧠 Initialize session state
 if "conversation_id" not in st.session_state:
     st.session_state["conversation_id"] = str(uuid.uuid4())
 
@@ -47,7 +45,7 @@ if "conversation_history" not in st.session_state:
 
 conversation_id = st.session_state["conversation_id"]
 
-# 🧠 Function to call Hush API
+# 🧩 Function to call Hush API
 def call_hush_api(message: str, history: list):
     headers = {
         "Authorization": f"Bearer {HUSH_AUTH_TOKEN}",
@@ -55,13 +53,13 @@ def call_hush_api(message: str, history: list):
     }
     data = {"message": message, "conversationHistory": history}
     try:
-        res = requests.post(HUSH_URL, headers=headers, json=data)
+        res = requests.post(HUSH_URL, headers=headers, json=data, timeout=60)
         res.raise_for_status()
         return res.text
     except requests.exceptions.RequestException as e:
         return f"❌ Hush API Error: {e}"
 
-# 🧠 Function to call main Supabase agent API
+# 🧩 Function to call Supabase Agent API
 def call_agent_api(message: str):
     headers = {
         "Content-Type": "application/json",
@@ -75,7 +73,7 @@ def call_agent_api(message: str):
         "useRAG": True,
     }
     try:
-        response = requests.post(SUPABASE_AGENT_URL, headers=headers, json=data)
+        response = requests.post(SUPABASE_AGENT_URL, headers=headers, json=data, timeout=60)
         response.raise_for_status()
         result = response.json()
         return result.get("message", ""), result.get("contextUsed", "")
@@ -87,26 +85,23 @@ for sender, msg in st.session_state["conversation_history"]:
     with st.chat_message("user" if sender == "You" else "assistant"):
         st.markdown(msg)
 
-# 🧠 Chat input box
+# 💭 Chat input box
 message = st.chat_input("Type your message...")
 
 if message:
+    # Save user message
     st.session_state["conversation_history"].append(("You", message))
     with st.chat_message("user"):
         st.markdown(message)
 
-    # 🔍 Check if @hush command is used
+    # 🔍 Detect @hush command
     if "@hush" in message.lower():
-        # Extract message after @hush
         hush_text = message.split("@hush", 1)[1].strip()
         with st.spinner("🤫 Sending to Hush..."):
-            hush_response = call_hush_api(hush_text, st.session_state["conversation_history"])
-        ai_message = hush_response
+            ai_message = call_hush_api(hush_text, st.session_state["conversation_history"])
     else:
-        # Regular agent flow
         with st.spinner("⚡ Thinking..."):
             ai_message, context_used = call_agent_api(message)
-
         if context_used:
             st.info(f'📌 Context Used: {context_used}')
 
@@ -115,13 +110,22 @@ if message:
     with st.chat_message("assistant"):
         st.markdown(ai_message)
 
-# 💅 UI polish
+# 💅 Enhanced UI styling
 st.markdown(
     """
     <style>
-    .stChatInput textarea {border-radius: 12px; border: 1px solid #ccc;}
-    .stChatMessage {border-radius: 14px; padding: 8px 14px;}
-    .stAlert {margin-top: 12px;}
+    .stChatInput textarea {
+        border-radius: 12px;
+        border: 1px solid #dcdcdc;
+        background-color: #fafafa;
+    }
+    .stChatMessage {
+        border-radius: 14px;
+        padding: 8px 14px;
+    }
+    .stAlert {
+        margin-top: 12px;
+    }
     </style>
     """,
     unsafe_allow_html=True
