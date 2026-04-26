@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-import json
 import pandas as pd
 from datetime import datetime
 
@@ -19,24 +18,14 @@ st.set_page_config(
 # ──────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Hide the default Streamlit hamburger / footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-
-    /* Platform badge */
     .platform-ask  { background:#0f4c81; color:#ffffff; padding:.3rem .8rem; border-radius:20px; font-size:.8rem; font-weight:700; letter-spacing:.05em; }
     .platform-ent  { background:#1a1a2e; color:#e0b84d; padding:.3rem .8rem; border-radius:20px; font-size:.8rem; font-weight:700; letter-spacing:.05em; }
-
-    /* Info / success / error boxes */
     .info-box    { background:#e8f4f8; padding:1rem; border-radius:6px; border-left:4px solid #1f77b4; margin-bottom:1rem; }
     .success-box { background:#d4edda; padding:1rem; border-radius:6px; border-left:4px solid #28a745; margin-bottom:1rem; }
     .error-box   { background:#f8d7da; padding:1rem; border-radius:6px; border-left:4px solid #dc3545; margin-bottom:1rem; }
-    .warn-box    { background:#fff3cd; padding:1rem; border-radius:6px; border-left:4px solid #ffc107; margin-bottom:1rem; }
-
-    /* Sub-headers */
     .sub-header  { font-size:1.3rem; font-weight:700; color:#2c3e50; margin-top:1.5rem; margin-bottom:.75rem; }
-
-    /* Tool-execution card */
     .tool-card   { background:#f8f9fa; border:1px solid #dee2e6; border-radius:6px; padding:.75rem 1rem; margin-bottom:.5rem; }
 </style>
 """, unsafe_allow_html=True)
@@ -45,33 +34,53 @@ st.markdown("""
 # Session state defaults
 # ──────────────────────────────────────────────
 for key, default in {
-    "conv_history": [],
-    "composio_history": [],
-    "current_conv_id": None,
-    "composio_conv_id": None,
+    "platform":          "ASK.IO",
+    "conv_history":      [],
+    "composio_history":  [],
+    "current_conv_id":   None,
+    "composio_conv_id":  None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
 # ──────────────────────────────────────────────
-# Load secrets
+# Load BOTH platform configs from secrets upfront
 # ──────────────────────────────────────────────
-BASE_URL = "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1"
+secrets_loaded = False
+configs = {
+    "ASK.IO": {
+        "key":           "",
+        "base_url":      "https://mlrunhzylyfxhtwhexjx.supabase.co/functions/v1",
+        "agent_id":      "",
+        "user_id":       "",
+        "connection_id": "",
+    },
+    "Enterprise.IO": {
+        "key":           "",
+        "base_url":      "https://dhhwgviwnmzsfzbujchf.supabase.co/functions/v1",
+        "agent_id":      "",
+        "user_id":       "",
+        "connection_id": "",
+    },
+}
 
 try:
-    api_key        = st.secrets["api"]["key"]
-    base_url       = st.secrets["api"].get("base_url", BASE_URL)
-    default_agent  = st.secrets.get("defaults", {}).get("agent_id", "")
-    default_user   = st.secrets.get("defaults", {}).get("user_id", "")
-    default_conn   = st.secrets.get("defaults", {}).get("connection_id", "")
+    configs["ASK.IO"].update({
+        "key":           st.secrets["askio"]["key"],
+        "base_url":      st.secrets["askio"].get("base_url", configs["ASK.IO"]["base_url"]),
+        "agent_id":      st.secrets["askio"].get("agent_id", ""),
+        "user_id":       st.secrets["askio"].get("user_id", ""),
+        "connection_id": st.secrets["askio"].get("connection_id", ""),
+    })
+    configs["Enterprise.IO"].update({
+        "key":      st.secrets["enterprise"]["key"],
+        "base_url": st.secrets["enterprise"].get("base_url", configs["Enterprise.IO"]["base_url"]),
+        "agent_id": st.secrets["enterprise"].get("agent_id", ""),
+        "user_id":  st.secrets["enterprise"].get("user_id", ""),
+    })
     secrets_loaded = True
 except Exception:
-    secrets_loaded  = False
-    api_key        = ""
-    base_url       = BASE_URL
-    default_agent  = ""
-    default_user   = ""
-    default_conn   = ""
+    secrets_loaded = False
 
 # ──────────────────────────────────────────────
 # Sidebar
@@ -79,52 +88,66 @@ except Exception:
 with st.sidebar:
     st.markdown("## 🧠 ETLAS Agent Interface")
 
-    # Platform selector
-    platform = st.radio(
+    selected_platform = st.radio(
         "Platform",
         options=["ASK.IO", "Enterprise.IO"],
+        index=0 if st.session_state.platform == "ASK.IO" else 1,
         horizontal=True,
-        help="Choose which ETLAS platform to interact with",
     )
 
+    # Reset history when platform switches
+    if selected_platform != st.session_state.platform:
+        st.session_state.platform         = selected_platform
+        st.session_state.conv_history     = []
+        st.session_state.composio_history = []
+        st.session_state.current_conv_id  = None
+        st.session_state.composio_conv_id = None
+        st.rerun()
+
+    platform = st.session_state.platform
+    cfg      = configs[platform]
+
     st.markdown("---")
-    st.markdown("### ⚙️ API Configuration")
+    st.markdown("### ⚙️ Configuration")
 
     if secrets_loaded:
         st.success("✅ Credentials loaded from secrets")
-        st.caption(f"**Base URL:** `{base_url}`")
+        st.caption(f"**Base URL:** `{cfg['base_url']}`")
         if st.checkbox("Override API Key"):
-            api_key = st.text_input("Custom API Key", type="password")
+            cfg["key"] = st.text_input("Custom API Key", type="password")
     else:
-        st.warning("⚠️ No secrets found — using manual input")
-        api_key  = st.text_input("API Key", type="password")
-        base_url = st.text_input("Base URL", value=BASE_URL)
+        st.warning("⚠️ No secrets found — manual input")
+        cfg["key"]      = st.text_input("API Key",  type="password", key="manual_key")
+        cfg["base_url"] = st.text_input("Base URL", value=cfg["base_url"], key="manual_url")
 
     st.markdown("---")
     if platform == "ASK.IO":
         st.markdown('<span class="platform-ask">● ASK.IO</span>', unsafe_allow_html=True)
-        st.caption("Endpoints: agent-handler · composio-enabled-agent · process-knowledge · semantic-search · db-query-handler")
+        st.caption("`mlrunhzylyfxhtwhexjx.supabase.co`")
+        st.caption("agent-handler · composio-enabled-agent · process-knowledge · semantic-search · db-query-handler")
     else:
         st.markdown('<span class="platform-ent">● Enterprise.IO</span>', unsafe_allow_html=True)
-        st.caption("Endpoints: agent-handler · composio-enabled-agent · process-knowledge-file · embed · search-knowledge")
+        st.caption("`dhhwgviwnmzsfzbujchf.supabase.co`")
+        st.caption("agent-handler · composio-enabled-agent · process-knowledge-file · embed · search-knowledge")
 
+# Active config shortcuts
+api_key       = cfg["key"]
+base_url      = cfg["base_url"]
+default_agent = cfg["agent_id"]
+default_user  = cfg["user_id"]
+default_conn  = cfg["connection_id"]
 
 # ──────────────────────────────────────────────
-# Helper: build auth headers
+# Helper: POST
 # ──────────────────────────────────────────────
-def auth_headers():
-    return {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-
-
 def post(endpoint: str, payload: dict):
-    """POST to base_url/endpoint and return (status_code, dict)."""
-    url = f"{base_url}/{endpoint}"
-    resp = requests.post(url, json=payload, headers=auth_headers(), timeout=60)
+    url     = f"{base_url}/{endpoint}"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    resp    = requests.post(url, json=payload, headers=headers, timeout=60)
     try:
         return resp.status_code, resp.json()
     except Exception:
         return resp.status_code, {"error": resp.text}
-
 
 # ──────────────────────────────────────────────
 # Helper: render tool executions
@@ -134,23 +157,22 @@ def render_tool_executions(executions: list):
         return
     st.markdown("**🔧 Tool Executions:**")
     for ex in executions:
-        status_icon = "✅" if ex.get("status") == "success" else "❌"
+        icon = "✅" if ex.get("status") == "success" else "❌"
         st.markdown(f"""
         <div class="tool-card">
-            {status_icon} <strong>{ex.get('tool', 'unknown')}</strong>
+            {icon} <strong>{ex.get('tool', 'unknown')}</strong>
             &nbsp;·&nbsp; <code>{ex.get('latency_ms', '?')} ms</code>
             &nbsp;·&nbsp; status: <em>{ex.get('status', '?')}</em>
         </div>
         """, unsafe_allow_html=True)
         with st.expander(f"Details — {ex.get('tool', '')}"):
-            col1, col2 = st.columns(2)
-            with col1:
+            c1, c2 = st.columns(2)
+            with c1:
                 st.markdown("**Arguments**")
                 st.json(ex.get("arguments", {}))
-            with col2:
+            with c2:
                 st.markdown("**Result**")
                 st.json(ex.get("result", {}))
-
 
 # ──────────────────────────────────────────────
 # Helper: render conversation history
@@ -169,20 +191,18 @@ def render_conv_history(history_key: str, conv_id_key: str):
             st.markdown(f"**🤖 Agent:** {entry['agent_response']}")
             meta = entry["metadata"]
             c1, c2, c3 = st.columns(3)
-            c1.metric("Model", meta.get("model", "N/A"))
-            c2.metric("Tokens", meta.get("usage", {}).get("tokens", "N/A"))
+            c1.metric("Model",        meta.get("model", "N/A"))
+            c2.metric("Tokens",       meta.get("usage", {}).get("tokens", "N/A"))
             ctx = meta.get("contextUsed", {})
             c3.metric("Conv History", ctx.get("conversationHistory", "N/A"))
             if ctx.get("ragResults"):
                 st.info(f"📚 RAG: {ctx['ragResults']}")
-            # Tool executions (composio)
             render_tool_executions(ctx.get("toolExecutions", []))
-            if st.checkbox(f"Show full JSON", key=f"json_{history_key}_{idx}"):
+            if st.checkbox("Show full JSON", key=f"json_{history_key}_{idx}"):
                 st.json(meta)
 
-
 # ──────────────────────────────────────────────
-# Build tabs based on platform
+# Tabs
 # ──────────────────────────────────────────────
 if platform == "ASK.IO":
     tabs = st.tabs(["💬 Agent Handler", "🔧 Composio Agent", "📚 Knowledge Base", "🗄️ DB Query"])
@@ -190,7 +210,7 @@ else:
     tabs = st.tabs(["💬 Agent Handler", "🔧 Composio Agent", "📚 Knowledge Base"])
 
 # ══════════════════════════════════════════════
-# TAB 1 — Agent Handler  (shared both platforms)
+# TAB 1 — Agent Handler
 # ══════════════════════════════════════════════
 with tabs[0]:
     st.markdown('<div class="sub-header">Agent Handler</div>', unsafe_allow_html=True)
@@ -205,7 +225,7 @@ with tabs[0]:
         ah_agent_id = st.text_input("Agent ID *", value=default_agent, key="ah_agent")
         ah_user_id  = st.text_input("User ID",    value=default_user,  key="ah_user")
     with c2:
-        ah_use_rag  = st.checkbox("Enable RAG", value=True, key="ah_rag")
+        ah_use_rag  = st.checkbox("Enable RAG",            value=True,  key="ah_rag")
         ah_continue = st.checkbox("Continue Conversation", value=False, key="ah_cont")
 
     ah_message = st.text_area("Your Message *", height=110, key="ah_msg")
@@ -215,7 +235,7 @@ with tabs[0]:
         ah_send = st.button("📤 Send", use_container_width=True, type="primary", key="ah_send")
     with b2:
         if st.button("🗑️ Clear", use_container_width=True, key="ah_clear"):
-            st.session_state.conv_history = []
+            st.session_state.conv_history    = []
             st.session_state.current_conv_id = None
             st.rerun()
 
@@ -227,11 +247,7 @@ with tabs[0]:
         elif not ah_message:
             st.error("⚠️ Message cannot be empty")
         else:
-            payload = {
-                "message":  ah_message,
-                "agentId":  ah_agent_id,
-                "useRAG":   ah_use_rag,
-            }
+            payload = {"message": ah_message, "agentId": ah_agent_id, "useRAG": ah_use_rag}
             if ah_user_id:
                 payload["userId"] = ah_user_id
             if ah_continue and st.session_state.current_conv_id:
@@ -258,16 +274,15 @@ with tabs[0]:
 
     render_conv_history("conv_history", "current_conv_id")
 
-
 # ══════════════════════════════════════════════
-# TAB 2 — Composio-Enabled Agent
+# TAB 2 — Composio Agent
 # ══════════════════════════════════════════════
 with tabs[1]:
     st.markdown('<div class="sub-header">Composio-Enabled Agent</div>', unsafe_allow_html=True)
     st.markdown("""
     <div class="info-box">
-    <strong>🔧</strong> Enterprise agent that can invoke real third-party tools — Gmail, Slack, GitHub, Notion,
-    Linear, HubSpot, and 250+ more via the Composio gateway. The agent decides which tools to call.
+    <strong>🔧</strong> Enterprise agent that invokes real third-party tools — Gmail, Slack, GitHub,
+    Notion, Linear, HubSpot, and 250+ more via the Composio gateway.
     </div>
     """, unsafe_allow_html=True)
 
@@ -276,17 +291,17 @@ with tabs[1]:
         ca_agent_id = st.text_input("Agent ID *", value=default_agent, key="ca_agent",
                                     help="Must have Composio tool assignments configured")
     with c2:
-        ca_use_rag  = st.checkbox("Enable RAG", value=True, key="ca_rag")
+        ca_use_rag  = st.checkbox("Enable RAG",            value=True,  key="ca_rag")
         ca_continue = st.checkbox("Continue Conversation", value=False, key="ca_cont")
 
     ca_message = st.text_area("Instruction *", height=110, key="ca_msg",
-                               placeholder="Send a Slack message to #general saying deploy is done")
+                               placeholder='e.g. "Send a Slack message to #general: Deploy complete ✅"')
 
     with st.expander("📖 Example instructions"):
         st.markdown("""
 - `Send a Slack message to #general: "Deploy complete ✅"`
 - `Create a Linear issue: Fix checkout bug — High priority`
-- `Email team@company.com with subject 'Q2 Report' and attach summary`
+- `Email team@company.com: subject Q2 Report`
 - `Create a GitHub issue in my-repo: Authentication timeout`
         """)
 
@@ -307,11 +322,7 @@ with tabs[1]:
         elif not ca_message:
             st.error("⚠️ Instruction cannot be empty")
         else:
-            payload = {
-                "message": ca_message,
-                "agentId": ca_agent_id,
-                "useRAG":  ca_use_rag,
-            }
+            payload = {"message": ca_message, "agentId": ca_agent_id, "useRAG": ca_use_rag}
             if ca_continue and st.session_state.composio_conv_id:
                 payload["conversationId"] = st.session_state.composio_conv_id
 
@@ -321,7 +332,8 @@ with tabs[1]:
                     if code == 200:
                         if "conversationId" in result:
                             st.session_state.composio_conv_id = result["conversationId"]
-                        ctx = result.get("contextUsed", {})
+                        ctx   = result.get("contextUsed", {})
+                        execs = ctx.get("toolExecutions", [])
                         st.session_state.composio_history.append({
                             "timestamp":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             "user_message":   ca_message,
@@ -329,8 +341,6 @@ with tabs[1]:
                             "metadata":       result,
                         })
                         st.success("✅ Agent completed!")
-                        # Immediate tool summary
-                        execs = ctx.get("toolExecutions", [])
                         if execs:
                             st.info(f"🔧 {len(execs)} tool(s) executed · {ctx.get('toolsAvailable', '?')} available")
                         st.rerun()
@@ -341,64 +351,60 @@ with tabs[1]:
 
     render_conv_history("composio_history", "composio_conv_id")
 
-
 # ══════════════════════════════════════════════
 # TAB 3 — Knowledge Base
 # ══════════════════════════════════════════════
 with tabs[2]:
     st.markdown('<div class="sub-header">Knowledge Base</div>', unsafe_allow_html=True)
 
-    # ── Platform-specific description ─────────
     if platform == "ASK.IO":
         st.markdown("""
         <div class="info-box">
-        <strong>📚 ASK.IO Knowledge:</strong>
-        Ingest documents (<code>process-knowledge</code>) and run semantic vector search
-        (<code>semantic-search</code>) backed by pgvector + Cloudflare embeddings.
+        <strong>📚 ASK.IO:</strong> Ingest via <code>process-knowledge</code>,
+        search via <code>semantic-search</code> (pgvector + Cloudflare embeddings).
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown("""
         <div class="info-box">
-        <strong>📚 Enterprise.IO Knowledge:</strong>
-        Upload and embed files (<code>process-knowledge-file</code> / <code>embed</code>) then run
-        vector similarity search (<code>search-knowledge</code>) via OpenAI <em>text-embedding-3-small</em>
-        and pgvector.
+        <strong>📚 Enterprise.IO:</strong> Upload via <code>process-knowledge-file</code>,
+        embed via <code>embed</code> (OpenAI <em>text-embedding-3-small</em>),
+        search via <code>search-knowledge</code>.
         </div>
         """, unsafe_allow_html=True)
 
-    kb_tab_ingest, kb_tab_search = st.tabs(["⬆️ Ingest / Process", "🔍 Semantic Search"])
+    kb_ingest_tab, kb_search_tab = st.tabs(["⬆️ Ingest / Process", "🔍 Semantic Search"])
 
     # ── INGEST ────────────────────────────────
-    with kb_tab_ingest:
+    with kb_ingest_tab:
         kb_agent_id = st.text_input("Agent ID *", value=default_agent, key="kb_agent")
 
         if platform == "ASK.IO":
             st.markdown("#### Process Knowledge (`process-knowledge`)")
-            kb_knowledge_id = st.text_input("Knowledge ID *", key="kb_kid",
-                                             placeholder="UUID of the knowledge item")
-            kb_content      = st.text_area("Content *", height=150, key="kb_content",
-                                            placeholder="Paste the document text to ingest…")
-            c1, c2 = st.columns(2)
-            kb_chunk_size    = c1.number_input("Chunk Size",    value=512, min_value=64, max_value=4096)
-            kb_chunk_overlap = c2.number_input("Chunk Overlap", value=50,  min_value=0,  max_value=512)
+            kb_knowledge_id  = st.text_input("Knowledge ID *", key="kb_kid",
+                                              placeholder="UUID of the knowledge item")
+            kb_content       = st.text_area("Content *", height=150, key="kb_content",
+                                             placeholder="Paste document text to ingest…")
+            c1, c2           = st.columns(2)
+            kb_chunk_size    = c1.number_input("Chunk Size",    value=512, min_value=64,  max_value=4096)
+            kb_chunk_overlap = c2.number_input("Chunk Overlap", value=50,  min_value=0,   max_value=512)
 
-            if st.button("⬆️ Process Knowledge", type="primary", key="kb_process"):
+            if st.button("⬆️ Process Knowledge", type="primary", key="kb_process_ask"):
                 if not all([api_key, kb_agent_id, kb_knowledge_id, kb_content]):
                     st.error("⚠️ Agent ID, Knowledge ID and Content are required")
                 else:
                     payload = {
-                        "knowledgeId":   kb_knowledge_id,
-                        "content":       kb_content,
-                        "agentId":       kb_agent_id,
-                        "chunkSize":     kb_chunk_size,
-                        "chunkOverlap":  kb_chunk_overlap,
+                        "knowledgeId":  kb_knowledge_id,
+                        "content":      kb_content,
+                        "agentId":      kb_agent_id,
+                        "chunkSize":    kb_chunk_size,
+                        "chunkOverlap": kb_chunk_overlap,
                     }
                     with st.spinner("🔄 Ingesting…"):
                         try:
                             code, result = post("process-knowledge", payload)
                             if code == 200:
-                                st.success("✅ Knowledge processed successfully!")
+                                st.success("✅ Knowledge processed!")
                                 st.json(result)
                             else:
                                 st.error(f"❌ Error {code}: {result}")
@@ -408,24 +414,20 @@ with tabs[2]:
         else:  # Enterprise.IO
             st.markdown("#### Process Knowledge File (`process-knowledge-file`)")
             kb_file_path = st.text_input("File Path *", key="kb_fp",
-                                          placeholder="Path inside the knowledge-base storage bucket")
+                                          placeholder="Path inside knowledge-base storage bucket")
             kb_title     = st.text_input("Title *", key="kb_title",
                                           placeholder="Display title for the document")
 
-            if st.button("⬆️ Process Knowledge File", type="primary", key="kb_process_ent"):
+            if st.button("⬆️ Process File", type="primary", key="kb_process_ent"):
                 if not all([api_key, kb_agent_id, kb_file_path, kb_title]):
                     st.error("⚠️ Agent ID, File Path and Title are required")
                 else:
-                    payload = {
-                        "filePath": kb_file_path,
-                        "agentId":  kb_agent_id,
-                        "title":    kb_title,
-                    }
+                    payload = {"filePath": kb_file_path, "agentId": kb_agent_id, "title": kb_title}
                     with st.spinner("🔄 Processing file…"):
                         try:
                             code, result = post("process-knowledge-file", payload)
                             if code == 200:
-                                st.success("✅ Knowledge file processed!")
+                                st.success("✅ File processed!")
                                 st.json(result)
                             else:
                                 st.error(f"❌ Error {code}: {result}")
@@ -434,14 +436,14 @@ with tabs[2]:
 
             st.markdown("---")
             st.markdown("#### Generate Embeddings (`embed`)")
-            embed_note = st.text_area("Content to embed *", height=100, key="kb_embed_content")
+            embed_content = st.text_area("Content to embed *", height=100, key="kb_embed_content")
             if st.button("🧮 Generate Embeddings", key="kb_embed"):
-                if not all([api_key, embed_note]):
+                if not all([api_key, embed_content]):
                     st.error("⚠️ Content is required")
                 else:
                     with st.spinner("🔄 Generating embeddings…"):
                         try:
-                            code, result = post("embed", {"content": embed_note, "agentId": kb_agent_id})
+                            code, result = post("embed", {"content": embed_content, "agentId": kb_agent_id})
                             if code == 200:
                                 st.success("✅ Embeddings generated!")
                                 st.json(result)
@@ -451,37 +453,31 @@ with tabs[2]:
                             st.error(f"❌ {e}")
 
     # ── SEARCH ────────────────────────────────
-    with kb_tab_search:
-        search_agent_id  = st.text_input("Agent ID", value=default_agent, key="ks_agent",
-                                          help="Filter results to this agent's knowledge")
-        search_query     = st.text_area("Search Query *", height=80, key="ks_query",
-                                         placeholder="e.g. refund policy for enterprise plans")
-        c1, c2 = st.columns(2)
-        search_threshold = c1.slider("Match Threshold", 0.0, 1.0, 0.7, 0.05, key="ks_thresh")
-        search_count     = c2.number_input("Max Results", 1, 20, 5, key="ks_count")
+    with kb_search_tab:
+        ks_agent_id  = st.text_input("Agent ID", value=default_agent, key="ks_agent")
+        ks_query     = st.text_area("Search Query *", height=80, key="ks_query",
+                                     placeholder="e.g. refund policy for enterprise plans")
+        c1, c2       = st.columns(2)
+        ks_threshold = c1.slider("Match Threshold", 0.0, 1.0, 0.7, 0.05, key="ks_thresh")
+        ks_count     = c2.number_input("Max Results", 1, 20, 5, key="ks_count")
 
         search_endpoint = "semantic-search" if platform == "ASK.IO" else "search-knowledge"
 
         if st.button("🔍 Search", type="primary", key="ks_search"):
-            if not all([api_key, search_query]):
+            if not all([api_key, ks_query]):
                 st.error("⚠️ Query is required")
             else:
-                payload = {
-                    "query":          search_query,
-                    "matchThreshold": search_threshold,
-                    "matchCount":     search_count,
-                }
-                if search_agent_id:
-                    payload["agentId"] = search_agent_id
-
+                payload = {"query": ks_query, "matchThreshold": ks_threshold, "matchCount": ks_count}
+                if ks_agent_id:
+                    payload["agentId"] = ks_agent_id
                 with st.spinner("🔄 Searching…"):
                     try:
                         code, result = post(search_endpoint, payload)
                         if code == 200:
                             st.success("✅ Search complete!")
-                            results = result if isinstance(result, list) else result.get("results", [])
-                            if results:
-                                df = pd.DataFrame(results)
+                            rows = result if isinstance(result, list) else result.get("results", [])
+                            if rows:
+                                df  = pd.DataFrame(rows)
                                 st.dataframe(df, use_container_width=True)
                                 csv = df.to_csv(index=False)
                                 st.download_button(
@@ -498,7 +494,6 @@ with tabs[2]:
                     except Exception as e:
                         st.error(f"❌ {e}")
 
-
 # ══════════════════════════════════════════════
 # TAB 4 — DB Query  (ASK.IO only)
 # ══════════════════════════════════════════════
@@ -508,17 +503,16 @@ if platform == "ASK.IO":
         st.markdown("""
         <div class="info-box">
         <strong>🗄️</strong> Natural-language → SELECT-only SQL on connected external databases
-        (<code>db-query-handler</code>).
+        via <code>db-query-handler</code>.
         </div>
         """, unsafe_allow_html=True)
 
         c1, c2 = st.columns(2)
         with c1:
-            db_user_id  = st.text_input("User ID *",       value=default_user,  key="db_user")
-            db_agent_id = st.text_input("Agent ID",        value=default_agent, key="db_agent")
+            db_user_id   = st.text_input("User ID *",      value=default_user,  key="db_user")
+            db_agent_id  = st.text_input("Agent ID",       value=default_agent, key="db_agent")
         with c2:
-            db_config_id = st.text_input("DB Config ID *", value=default_conn,
-                                          key="db_config",
+            db_config_id = st.text_input("DB Config ID *", value=default_conn,  key="db_config",
                                           placeholder="Database connection config UUID")
 
         db_message = st.text_area(
@@ -531,14 +525,11 @@ if platform == "ASK.IO":
             st.code("SELECT COUNT(*) FROM orders WHERE status = 'completed'", language="sql")
             st.code("Show me all active users created in the last 30 days", language="text")
 
-        if st.button("⚡ Execute", use_container_width=False, type="primary", key="db_exec"):
-            if not all([api_key, db_user_id, db_message, db_config_id]):
+        if st.button("⚡ Execute", type="primary", key="db_exec"):
+            if not all([api_key, db_user_id, db_config_id, db_message]):
                 st.error("⚠️ User ID, DB Config ID and Query are required")
             else:
-                payload = {
-                    "message":    db_message,
-                    "dbConfigId": db_config_id,
-                }
+                payload = {"message": db_message, "dbConfigId": db_config_id}
                 if db_user_id:
                     payload["userId"] = db_user_id
                 if db_agent_id:
@@ -549,16 +540,15 @@ if platform == "ASK.IO":
                         code, result = post("db-query-handler", payload)
                         if code == 200:
                             exec_result = result.get("executionResult", {})
-
                             c1, c2 = st.columns(2)
-                            c1.metric("Action",       result.get("action", "N/A"))
-                            c2.metric("SQL Executed",  result.get("sqlExecuted", "N/A"))
+                            c1.metric("Action",      result.get("action",      "N/A"))
+                            c2.metric("SQL Executed", result.get("sqlExecuted", "N/A"))
 
                             if exec_result.get("success"):
                                 st.success(exec_result.get("message", "Query executed successfully"))
                                 rows = exec_result.get("result", [])
                                 if isinstance(rows, list) and rows:
-                                    df = pd.DataFrame(rows)
+                                    df  = pd.DataFrame(rows)
                                     st.dataframe(df, use_container_width=True)
                                     csv = df.to_csv(index=False)
                                     st.download_button(
@@ -581,7 +571,6 @@ if platform == "ASK.IO":
                             st.error(f"❌ Error {code}: {result}")
                     except Exception as e:
                         st.error(f"❌ {e}")
-
 
 # ──────────────────────────────────────────────
 # Footer
